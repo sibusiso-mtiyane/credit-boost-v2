@@ -1,9 +1,89 @@
 import streamlit as st
+from streamlit_extras.stylable_container import stylable_container
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+from matplotlib.patches import FancyArrowPatch
+from matplotlib.animation import FuncAnimation
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib import cm
+from matplotlib.colors import to_hex
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.colors import sequential
+
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+import time
+
+GLOBAL_COL_STYLE = """
+    {
+    background: radial-gradient(circle, #164DF2, #0F2A66);
+    padding: 20px;
+    color: #FFFFFF;
+    border-radius: 10px;
+    }
+"""
+
+# ---------- Gradient Donut Helper ----------
+def gradient_donut(points, max_points,  cmap_name="coolwarm", steps=80):
+    if max_points <= 0:
+        return [100], ["rgba(224,224,224,0.25)"]
+
+    frac = max(min(points / max_points, 1), 0)
+    earned = frac * 100
+    remaining = 100 - earned
+
+    cmap = cm.get_cmap(cmap_name)  # 👈 diverging orange → blue
+
+    values = []
+    colors = []
+
+    # Explicitly sample warm → cool
+    for i in range(steps):
+        t = 0.15 + 0.70 * (i / (steps - 1))  # 👈 key line
+        values.append(earned / steps)
+        colors.append(to_hex(cmap(t)))
+
+    values.append(remaining)
+    colors.append("rgba(224,224,224,0.25)")
+    return values, colors
+
+# def gradient_donut(points, max_points, cmap_name="plasma", steps=80):
+#     if max_points <= 0:
+#         return [100], ["rgba(224,224,224,0.25)"]
+
+#     frac = max(min(points / max_points, 1), 0)
+#     earned = frac * 100
+#     remaining = 100 - earned
+
+#     cmap = cm.get_cmap(cmap_name)
+
+#     values = []
+#     colors = []
+
+#     # Gradient slices (earned portion)
+#     for i in range(steps):
+#         values.append(earned / steps)
+#         colors.append(to_hex(cmap(i / (steps - 1))))
+
+#     # Remaining slice
+#     values.append(remaining)
+#     colors.append("rgba(224,224,224,0.25)")
+
+#     return values, colors
+
+
+def get_gradient_color(percentage):
+    """Maps a percentage (0 to 1) to a color in a Red-Green gradient."""
+    # Using 'RdYlGn' (Red-Yellow-Green) colormap
+    cmap = plt.get_cmap('RdYlGn')
+    # Use the percentage to sample the color from the map
+    rgba_color = cmap(percentage)
+    # Convert RGBA to hex format which Plotly prefers
+    return mcolors.rgb2hex(rgba_color)
 
 def render_customer_view(manager, customer_id, auth_manager=None):
     """Render the main customer view with data and statistics"""
@@ -11,8 +91,8 @@ def render_customer_view(manager, customer_id, auth_manager=None):
     
     if not customer_data.empty:
         _render_customer_header(customer_id, len(customer_data))
-        _render_editable_table(manager, customer_id, customer_data, auth_manager)
         _render_summary_statistics(customer_data)
+        _render_editable_table(manager, customer_id, customer_data, auth_manager)
         _render_credit_score_dashboard(customer_data, customer_id, auth_manager)
     else:
         _render_no_data_view(manager, customer_id, auth_manager)
@@ -27,11 +107,11 @@ def render_welcome_screen(manager, auth_manager=None):
 def _render_customer_header(customer_id, product_count):
     """Render the customer header section"""
     st.header(f"Credit Profile for: {customer_id}")
-    st.write(f"**Total Products:** {product_count}")
+    # st.write(f"**Total Products:** {product_count}")
 
 def _render_editable_table(manager, customer_id, customer_data, auth_manager=None):
     """Render the editable data table with permission checks"""
-    st.subheader("Edit Customer Data")
+    # st.subheader("Edit Customer Data")
     
     # Check if user has edit permission
     can_edit = True
@@ -42,7 +122,7 @@ def _render_editable_table(manager, customer_id, customer_data, auth_manager=Non
         customer_data,
         key=f"customer_editor_{customer_id}",
         num_rows="fixed",
-        use_container_width=True,
+        width='stretch',
         column_config=_get_column_config(),
         hide_index=True,
         disabled=not can_edit  # Disable editing if user doesn't have permission
@@ -71,17 +151,17 @@ def _get_column_config():
         "account_number": st.column_config.TextColumn("Account Number", required=True),
         "opening_date": st.column_config.DateColumn("Opening Date", format="YYYY-MM-DD", required=True),
         "last_payment_date": st.column_config.DateColumn("Last Payment Date", format="YYYY-MM-DD", required=True),
-        "opening_balance": st.column_config.NumberColumn("Opening Balance", format="$%d", min_value=0, required=True),
-        "credit_limit": st.column_config.NumberColumn("Credit Limit", format="$%d", min_value=0, required=True),
-        "monthly_instalment": st.column_config.NumberColumn("Monthly Instalment", format="$%d", min_value=0, required=True),
+        "opening_balance": st.column_config.NumberColumn("Opening Balance", format="R%d", min_value=0, required=True),
+        "credit_limit": st.column_config.NumberColumn("Credit Limit", format="R%d", min_value=0, required=True),
+        "monthly_instalment": st.column_config.NumberColumn("Monthly Instalment", format="R%d", min_value=0, required=True),
         "loan_term": st.column_config.NumberColumn("Loan Term (months)", min_value=1, max_value=600, step=1, required=True),
-        "current_balance": st.column_config.NumberColumn("Current Balance", format="$%d", min_value=0, required=True),
+        "current_balance": st.column_config.NumberColumn("Current Balance", format="R%d", min_value=0, required=True),
         "current_status": st.column_config.SelectboxColumn(
             "Current Status",
             options=["Active", "Closed", "Pending", "Delinquent", "Default", "Written Off"],
             required=True
         ),
-        "balance_overdue": st.column_config.NumberColumn("Balance Overdue", format="$%d", min_value=0, required=True),
+        "balance_overdue": st.column_config.NumberColumn("Balance Overdue", format="R%d", min_value=0, required=True),
         "subscriber_id": st.column_config.SelectboxColumn(
             "Subscriber ID",
             options=["SUB001", "SUB002", "SUB003", "SUB004", "SUB005"],
@@ -91,23 +171,24 @@ def _get_column_config():
 
 def _render_summary_statistics(customer_data):
     """Render the summary statistics section"""
-    st.subheader("Summary Statistics")
+    # st.subheader("Summary Statistics")
     
     if len(customer_data) > 0:
         # First row
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            total_credit_limit = customer_data['credit_limit'].sum()
-            st.metric("Total Credit Limit", f"${total_credit_limit:,.2f}")
+            with stylable_container(key="global_col0", css_styles=GLOBAL_COL_STYLE):
+                total_credit_limit = customer_data['credit_limit'].sum()
+                st.metric("Total Credit Limit", f"R {total_credit_limit:,.2f}".replace(",", " "))
         
         with col2:
             total_current_balance = customer_data['current_balance'].sum()
-            st.metric("Total Current Balance", f"${total_current_balance:,.2f}")
+            st.metric("Total Current Balance", f"R {total_current_balance:,.2f}".replace(",", " "))
         
         with col3:
             total_overdue = customer_data['balance_overdue'].sum()
-            st.metric("Total Overdue", f"${total_overdue:,.2f}")
+            st.metric("Total Overdue", f"R {total_overdue:,.2f}".replace(",", " "))
         
         with col4:
             active_products = len(customer_data[customer_data['current_status'] == 'Active'])
@@ -118,7 +199,7 @@ def _render_summary_statistics(customer_data):
         
         with col5:
             total_monthly_instalment = customer_data['monthly_instalment'].sum()
-            st.metric("Total Monthly Instalment", f"${total_monthly_instalment:,.2f}")
+            st.metric("Total Monthly Instalment", f"R {total_monthly_instalment:,.2f}".replace(",", " "))
         
         with col6:
             utilization = (total_current_balance / total_credit_limit * 100) if total_credit_limit > 0 else 0
@@ -188,6 +269,8 @@ def _render_payment_statistics(customer_data):
             else:
                 st.metric("Overdue Payments (>30 days)", 0)
 
+
+
 def _render_credit_score_dashboard(customer_data, customer_id, auth_manager=None):
     """Render the comprehensive credit score dashboard with permission checks"""
     st.markdown("---")
@@ -209,13 +292,10 @@ def _render_credit_score_dashboard(customer_data, customer_id, auth_manager=None
     
     # Dashboard layout - only show simulation tabs if user has permission
     if can_simulate:
-        tab1, tab2, tab3, tab4 = st.tabs(["Current Score", "Score Trends", "Score Simulation", "Improvement Plan"])
+        tab1, tab3, tab4 = st.tabs(["Current Score", "Score Simulation", "Improvement Plan"])
         
         with tab1:
             _render_current_score_tab(current_score, current_components, customer_id)
-        
-        with tab2:
-            _render_score_trends_tab(customer_id, current_score, current_components)
         
         with tab3:
             _render_score_simulation_tab(current_components, customer_id)
@@ -223,137 +303,230 @@ def _render_credit_score_dashboard(customer_data, customer_id, auth_manager=None
         with tab4:
             _render_improvement_plan_tab(current_components, customer_id)
     else:
-        tab1, tab2 = st.tabs(["Current Score", "Score Trends"])
+        tab1 = st.tabs(["Current Score"])
         
         with tab1:
             _render_current_score_tab(current_score, current_components, customer_id)
         
-        with tab2:
-            _render_score_trends_tab(customer_id, current_score, current_components)
+        # with tab2:
+        #     _render_score_trends_tab(customer_id, current_score, current_components)
         
         st.info("🎯 Score simulation features are only available for users with simulation permissions.")
 
 def _render_current_score_tab(current_score, current_components, customer_id):
     """Render the current score tab"""
-    col1, col2 = st.columns([1, 2])
+    col1, col2, colwide34 = st.columns([1, 1, 2])
     
     with col1:
-        _render_credit_score_gauge(current_score)
-        
-        # Quick stats
-        st.subheader("Quick Stats")
-        total_possible = sum(comp["max_points"] for comp in current_components)
-        percentage = (current_score / total_possible) * 100
-        
-        st.metric("Overall Score", f"{current_score}/{total_possible}")
-        st.metric("Percentage", f"{percentage:.1f}%")
-        st.metric("Score Category", _get_score_category(current_score))
-    
+        with stylable_container(key="global_col11", css_styles=GLOBAL_COL_STYLE):
+            st.subheader("Current score")
+            # _render_credit_score_bullet(current_score)
+            
     with col2:
-        st.subheader("Component Breakdown")
-        
-        # Create a bar chart for component scores
-        fig = go.Figure()
-        
-        components = [comp["name"] for comp in current_components]
-        current_points = [comp["points"] for comp in current_components]
-        max_points = [comp["max_points"] for comp in current_components]
-        
-        # Add current points
-        fig.add_trace(go.Bar(
-            name='Current Points',
-            x=components,
-            y=current_points,
-            marker_color='#164DF2'
-        ))
-        
-        # Add max possible points
-        fig.add_trace(go.Bar(
-            name='Max Possible',
-            x=components,
-            y=max_points,
-            marker_color='#3DF1DF',
-            opacity=0.3
-        ))
-        
-        fig.update_layout(
-            title="Score Components - Current vs Maximum",
-            barmode='overlay',
-            showlegend=True,
-            height=400
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+        with stylable_container(key="global_col12", css_styles=GLOBAL_COL_STYLE):
+            st.subheader("Current score")
+            render_credit_score_bullet_plasma(current_score)
 
-def _render_score_trends_tab(customer_id, current_score, current_components):
-    """Render the score trends and waterfall analysis tab"""
-    st.subheader("📈 Score Trend Analysis")
-    
-    # Get historical data
-    history = st.session_state[f'score_history_{customer_id}']
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Score trend over time
-        fig = px.line(
-            history, 
-            x='date', 
-            y='score',
-            title='Credit Score Trend Over Time',
-            markers=True
-        )
-        fig.update_layout(height=400)
-        fig.add_hline(y=current_score, line_dash="dash", line_color="red", 
-                     annotation_text="Current Score")
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Waterfall chart for last period change
-        if len(history) > 1:
-            _render_waterfall_chart(history, current_components)
-        else:
-            st.info("Not enough historical data for waterfall analysis")
 
-def _render_waterfall_chart(history, current_components):
-    """Render waterfall chart showing score changes"""
-    # Get the last two scores for comparison
+    with colwide34:
+        with stylable_container(key="global_col13", css_styles=GLOBAL_COL_STYLE):
+
+            st.subheader("Component Breakdown")
+            cols = st.columns(len(current_components))
+
+            for i, comp in enumerate(current_components):
+                with cols[i]:
+
+                    values, colors = gradient_donut(
+                        comp["points"],
+                        comp["max_points"],
+                        cmap_name="plasma",  # viridis, magma, turbo, cividis
+                        steps=90
+                    )
+
+                    fig = go.Figure(
+                        go.Pie(
+                            values=values,
+                            hole=0.82,                  # thinner donut
+                            marker=dict(colors=colors),
+                            textinfo="none",
+                            hoverinfo="none",
+                            showlegend=False,
+                            rotation=220               # soft curved start/end
+                        )
+                    )
+
+                    # Center percentage
+                    percentage = (
+                        comp["points"] / comp["max_points"]
+                        if comp["max_points"] > 0 else 0
+                    )
+
+                    fig.add_annotation(
+                        text=f"<b style='font-size:25px; color:white;'>{percentage:.0%}</b>",
+                        x=0.5, y=0.5,
+                        showarrow=False,
+                        align="center"
+                    )
+
+                    # Component name
+                    fig.add_annotation(
+                        text=f"<b>{comp['name']}</b>",
+                        x=0.5, y=-0.30,
+                        xref="paper", yref="paper",
+                        showarrow=False,
+                        font=dict(size=14, color="#FFFFFF"),
+                        align="center"
+                    )
+
+                    # Points info
+                    fig.add_annotation(
+                        text=f"{comp['points']}/{comp['max_points']}",
+                        x=0.5, y=-0.45,
+                        xref="paper", yref="paper",
+                        showarrow=False,
+                        font=dict(size=12, color="#FFFFFF"),
+                        align="center"
+                    )
+
+                    fig.update_layout(
+                        height=150,
+                        margin=dict(t=10, b=40, l=5, r=5),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        hovermode=False
+                    )
+
+                    st.plotly_chart(
+                        fig,
+                        width='stretch',
+                        config={"displayModeBar": False}
+                    )
+    # Second row
+    colwide56, colwide78 = st.columns([2, 2])
+
+     # Get historical data
+    history = st.session_state[f'score_history_{customer_id}']  
+
+    with colwide56:
+        with stylable_container(key="global_col14", css_styles=GLOBAL_COL_STYLE):
+            st.subheader("Score changes")
+            # Waterfall chart for last period change
+            if len(history) > 1:
+                _render_waterfall_chart(history, current_components)
+            else:
+                st.info("Not enough historical data for waterfall analysis")
+
+    with colwide78:
+        with stylable_container(key="global_col15", css_styles=GLOBAL_COL_STYLE):
+
+            st.subheader("Score Changes")
+
+            # Line plot
+            fig = px.line(
+                history,
+                x='date',
+                y='score',
+                markers=True,
+                title='Credit Score Trend Over Time'
+            )
+
+            # Make line smooth/curved
+            fig.update_traces(mode="lines+markers", line_shape='spline', line=dict(width=3, color='cyan'),
+                            marker=dict(size=6, color='cyan'))
+
+            # Transparent background
+            fig.update_layout(
+                height=300,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                title=dict(font=dict(color='white', size=14), x=0.5),
+                xaxis=dict(
+                    showgrid=True,
+                    gridcolor='rgba(0, 150, 255, 0.3)',  # soft blue grid
+                    tickfont=dict(color='white', size=10),
+                    linecolor='rgba(255,255,255,0.2)'
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridcolor='rgba(0, 150, 255, 0.3)',
+                    tickfont=dict(color='white', size=10),
+                    linecolor='rgba(255,255,255,0.2)'
+                ),
+                legend=dict(font=dict(color='white')),
+                margin=dict(t=50, b=40, l=40, r=40)
+            )
+
+            # Add horizontal line for current score
+            fig.add_hline(
+                y=current_score,
+                line_dash="dash",
+                line_color="red",
+                annotation_text="Current Score",
+                annotation_font_color='white',
+                annotation_position="top right"
+            )
+
+            # Show the plot in Streamlit with a unique key
+            st.plotly_chart(fig, width='stretch')
+            
+def _render_waterfall_chart(history, current_components, plot_height=300):
+    """Render a clean waterfall chart with transparent background"""
+    import numpy as np
+    import plotly.graph_objects as go
+
     previous_score = history.iloc[-2]['score']
     current_score = history.iloc[-1]['score']
-    
-    # Simulate component changes (in real scenario, you'd have historical component data)
+
+    # Simulate component changes
     component_changes = []
     for comp in current_components:
-        change = np.random.randint(-5, 10)  # Simulated change
+        change = np.random.randint(-5, 10)
         component_changes.append({
             'component': comp['name'],
             'change': change,
             'direction': 'increase' if change > 0 else 'decrease'
         })
-    
-    # Create waterfall data
+
     measures = ["relative"] * len(component_changes) + ["total"]
-    y = [change['change'] for change in component_changes] + [current_score - previous_score]
-    x = [change['component'] for change in component_changes] + ["Final Score"]
-    
+    y = [c['change'] for c in component_changes] + [current_score - previous_score]
+    x = [c['component'] for c in component_changes] + ["Final Score"]
+
+    text_labels = [f"+{val}" if val > 0 else str(val) for val in y[:-1]] + [f"{y[-1]:+.0f}"]
+
     fig = go.Figure(go.Waterfall(
         name="Score Changes",
         orientation="v",
         measure=measures,
         x=x,
         y=y,
+        text=text_labels,
         textposition="outside",
-        text=[f"+{val}" if val > 0 else str(val) for val in y[:-1]] + [f"{y[-1]:+.0f}"],
-        connector={"line": {"color": "rgb(63, 63, 63)"}},
+        textfont=dict(size=10, color="white"),   # white text
+        connector={"line": {"color": "rgba(255,255,255,0.2)", "width":1}},
+        decreasing=dict(marker=dict(color="tomato")),
+        increasing=dict(marker=dict(color="lightgreen")),
+        totals=dict(marker=dict(color="lightskyblue")),
+        hoverinfo="y+text"
     ))
-    
+
     fig.update_layout(
-        title=f"Score Change Analysis: {previous_score} → {current_score}",
+        title=dict(
+            text=f"Score Change Analysis: {previous_score} → {current_score}",
+            font=dict(size=12, color="white"),
+            x=0.5
+        ),
         showlegend=False,
-        height=500
+        height=plot_height,
+        margin=dict(t=40, b=30, l=30, r=30),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(showgrid=False, tickfont=dict(size=10, color="white")),
+        yaxis=dict(showgrid=False, tickfont=dict(size=10, color="white")),
     )
-    
-    st.plotly_chart(fig, use_container_width=True)
+
+    st.plotly_chart(fig, width='stretch')
+
 
 def _render_score_simulation_tab(current_components, customer_id):
     """Render the score simulation tab"""
@@ -540,7 +713,7 @@ def _get_action_steps(component_name, current_points, max_points):
 
 def _generate_score_history(customer_id, periods=12):
     """Generate mock historical score data"""
-    dates = pd.date_range(end=datetime.now(), periods=periods, freq='M')
+    dates = pd.date_range(end=datetime.now(), periods=periods, freq='ME')
     base_score = 65  # Starting score
     
     history = []
@@ -683,32 +856,208 @@ def _calculate_overdue_points(total_overdue, total_balance):
     else:
         return 1
 
-def _render_credit_score_gauge(score):
-    """Render the credit score gauge"""
-    # Determine score category and color
+def render_credit_score_bullet_plasma(
+    score,
+    max_score=100,
+    height=120,
+    tick_font_size=12,
+    marker_size=22,
+    label_font_size=14,
+    category_font_size=25,
+    category_margin_bottom=-20,
+    key="credit_score_bullet_plasma"
+):
+    # ---------- Category logic ----------
     if score >= 90:
         category = "Excellent"
-        color = "#00FF00"
     elif score >= 75:
         category = "Good"
-        color = "#90EE90"
     elif score >= 60:
         category = "Fair"
-        color = "#FFA500"
     elif score >= 40:
         category = "Poor"
-        color = "#FF6B6B"
     else:
         category = "Very Poor"
-        color = "#FF0000"
-    
-    st.markdown(f"""
-    <div style="text-align: center; padding: 20px; border-radius: 15px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); border: 3px solid {color};">
-        <h1 style="margin: 0; color: {color}; font-size: 4rem; font-weight: bold;">{score}</h1>
-        <h3 style="margin: 0; color: {color};">{category}</h3>
-        <p style="margin: 5px 0 0 0; color: #6c757d;">Credit Score</p>
-    </div>
-    """, unsafe_allow_html=True)
+
+    plasma = sequential.Plasma
+    cat_color = plasma[-2]
+
+    # ---------- Figure ----------
+    fig = go.Figure()
+
+    # Thresholds (traditional credit bands)
+    thresholds = [0, 40, 60, 75, 90, max_score]
+    steps = 40  # smoothness of gradient
+
+    # ---------- Gradient background bars ----------
+    for start, end, color in zip(thresholds[:-1], thresholds[1:], plasma[1:6]):
+        segment_width = (end - start) / steps
+        for i in range(steps):
+            fig.add_trace(go.Bar(
+                x=[segment_width],
+                y=["Score"],
+                base=start + i * segment_width,
+                orientation="h",
+                marker=dict(
+                    color=color,
+                    opacity=0.4 + 0.6 * (i / steps),
+                    line=dict(width=0)
+                ),
+                hoverinfo="skip",
+                showlegend=False
+            ))
+
+    # ---------- Score marker ----------
+    fig.add_trace(go.Scatter(
+        x=[score],
+        y=["Score"],
+        mode="markers+text",
+        marker=dict(
+            symbol="line-ns-open",
+            size=marker_size,
+            color="white",
+            line=dict(width=4, color=plasma[-1])
+        ),
+        text=[f"<b>{score}</b>"],
+        textposition="top center",
+        textfont=dict(size=label_font_size, color="white"),
+        hovertemplate=f"Score: {score}<extra></extra>",
+        showlegend=False
+    ))
+
+    # ---------- Layout ----------
+    top_margin = max(25, int(height * 0.25))
+
+    fig.update_layout(
+        height=height,
+        barmode="stack",
+        margin=dict(l=10, r=10, t=top_margin, b=12),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(
+            range=[0, max_score],
+            showgrid=False,
+            tickfont=dict(color="white", size=tick_font_size),
+            zeroline=False
+        ),
+        yaxis=dict(showticklabels=False)
+    )
+
+    # ---------- Category label ----------
+    st.markdown(
+        f"""
+        <div style="
+            text-align:center;
+            color:{cat_color};
+            font-size:{category_font_size}px;
+            margin-bottom:{category_margin_bottom}px;
+        ">
+            <b>{category}</b>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.plotly_chart(fig, width="stretch", key=key)
+
+
+def _render_credit_score_bullet(
+    score,
+    max_score=100,
+    height=85,
+    tick_font_size=12,
+    marker_size=25,
+    label_font_size=12,
+    category_font_size=14,
+    category_margin_bottom=-20  # NEW: space between category and chart
+):
+    """
+    Premium bullet chart with adjustable category spacing:
+    - Gradient blue bars (Blues colormap)
+    - Highlighted score marker
+    - Floating numeric label
+    - Dynamic category label above chart
+    - Transparent background
+    """
+
+    # Determine score category
+    if score >= 90:
+        category, cat_color = "Excellent", sequential.Blues[-1]
+    elif score >= 75:
+        category, cat_color = "Good", sequential.Blues[-2]
+    elif score >= 60:
+        category, cat_color = "Fair", sequential.Blues[-3]
+    elif score >= 40:
+        category, cat_color = "Poor", sequential.Blues[-4]
+    else:
+        category, cat_color = "Very Poor", sequential.Blues[2]
+
+    # Thresholds for bars
+    thresholds = [0, 40, 60, 75, 90, max_score]
+    n_steps = 50
+    blues_colors = sequential.Blues[::-1]  # dark = high score
+
+    fig = go.Figure()
+
+    # Gradient category bars
+    for start, end, color in zip(thresholds[:-1], thresholds[1:], blues_colors[-4:]):
+        gradient = np.linspace(0.5, 1.0, n_steps)
+        for i, g in enumerate(gradient):
+            width = (end - start) / n_steps
+            fig.add_trace(go.Bar(
+                x=[width],
+                y=["Credit Score"],
+                base=start + i*width,
+                orientation='h',
+                marker=dict(color=color, opacity=g, line=dict(width=0)),
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+
+    # Highlighted score marker
+    fig.add_trace(go.Scatter(
+        x=[score],
+        y=["Credit Score"],
+        mode="markers+text",
+        marker=dict(
+            color="white",
+            size=marker_size,
+            line=dict(color="deepskyblue", width=5),
+            symbol="line-ns-open"
+        ),
+        text=[f"<b>{score}</b>"],
+        textposition="top center",
+        textfont=dict(color="white", size=label_font_size, family="Arial"),
+        showlegend=False,
+        hovertemplate=f"Score: {score}<extra></extra>"
+    ))
+
+    # Layout
+    fig.update_layout(
+        barmode='stack',
+        height=height,
+        margin=dict(l=10, r=10, t=40, b=15),
+        paper_bgcolor= 'rgba(0,0,0,0)',
+        plot_bgcolor= 'rgba(0,0,0,0)',
+        xaxis=dict(
+            range=[0, max_score],
+            showgrid=False,
+            showticklabels=True,
+            tickfont=dict(color='white', size=tick_font_size),
+            zeroline=False
+        ),
+        yaxis=dict(showticklabels=False)
+    )
+
+    # Category label above chart with adjustable margin
+    st.markdown(
+        f"<h3 style='text-align:center; color:{cat_color}; "
+        f"font-size:{category_font_size}px; margin-top:-10px; margin-bottom:{category_margin_bottom}px;'>{category}</h3>",
+        unsafe_allow_html=True
+    )
+
+    st.plotly_chart(fig, width='stretch', key="bullet_blues")
+
 
 def _get_score_category(score):
     """Get score category"""
@@ -754,7 +1103,7 @@ def _render_available_customers(manager, auth_manager=None):
         cols = st.columns(3)
         for i, customer in enumerate(unique_customers[:6]):
             with cols[i % 3]:
-                if st.button(f"{customer}", use_container_width=True, key=f"cust_btn_{customer}"):
+                if st.button(f"{customer}", width='stretch', key=f"cust_btn_{customer}"):
                     st.session_state.current_customer_id = customer
                     st.session_state.customer_search = customer
                     st.rerun()

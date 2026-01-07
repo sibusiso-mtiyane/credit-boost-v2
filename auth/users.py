@@ -97,7 +97,16 @@ class UserDatabase:
                 subscriber_ids=['SUB001'],
                 full_name='Data Viewer 1',
                 email='viewer1@creditprofile.com'
-            )
+            ),
+            'manager2': User(
+                username='sibusiso.mtiyane',
+                password_hash=self._hash_password('boostpwd'),
+                role='manager',
+                subscriber_ids=['SUB001', 'SUB002'],
+                full_name='Sibusiso Mtiyane',
+                email='smtiyane@xds.co.za'
+            ),
+
         }
         self._save_users(default_users)
         return default_users

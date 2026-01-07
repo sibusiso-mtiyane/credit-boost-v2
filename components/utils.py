@@ -47,7 +47,7 @@ def render_delete_section(manager, customer_id, auth_manager=None):
                 st.write(f"Status: {selected_data['current_status']}")
                 st.write(f"Subscriber: {selected_data['subscriber_id']}")
             
-            if st.button("🗑️ Delete Selected Row", type="secondary", use_container_width=True,
+            if st.button("🗑️ Delete Selected Row", type="secondary", width='stretch',
                         key=f"delete_button_{customer_id}"):
                 row_index = int(selected_row.split(":")[0].replace("Row ", "")) - 1
                 if manager.delete_row(customer_id, row_index):
